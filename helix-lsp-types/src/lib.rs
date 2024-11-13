@@ -291,13 +291,6 @@ impl Location {
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocationLink {
-    /// Span of the origin of this link.
-    ///
-    /// Used as the underlined span for mouse interaction. Defaults to the word range at
-    /// the mouse position.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_selection_range: Option<Range>,
-
     /// The target resource identifier of this link.
     pub target_uri: Url,
 

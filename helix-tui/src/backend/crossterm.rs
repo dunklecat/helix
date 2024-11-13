@@ -2,9 +2,8 @@ use crate::{backend::Backend, buffer::Cell, terminal::Config};
 use crossterm::{
     cursor::{Hide, MoveTo, SetCursorStyle, Show},
     event::{
-        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-        EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute, queue,
     style::{
@@ -99,7 +98,6 @@ pub struct CrosstermBackend<W: Write> {
     buffer: W,
     capabilities: Capabilities,
     supports_keyboard_enhancement_protocol: OnceCell<bool>,
-    mouse_capture_enabled: bool,
     supports_bracketed_paste: bool,
 }
 
@@ -116,7 +114,6 @@ where
             buffer,
             capabilities: Capabilities::from_env_or_default(config),
             supports_keyboard_enhancement_protocol: OnceCell::new(),
-            mouse_capture_enabled: false,
             supports_bracketed_paste: true,
         }
     }
@@ -156,7 +153,7 @@ impl<W> Backend for CrosstermBackend<W>
 where
     W: Write,
 {
-    fn claim(&mut self, config: Config) -> io::Result<()> {
+    fn claim(&mut self, _config: Config) -> io::Result<()> {
         terminal::enable_raw_mode()?;
         execute!(
             self.buffer,
@@ -172,10 +169,6 @@ where
             Ok(_) => (),
         };
         execute!(self.buffer, terminal::Clear(terminal::ClearType::All))?;
-        if config.enable_mouse_capture {
-            execute!(self.buffer, EnableMouseCapture)?;
-            self.mouse_capture_enabled = true;
-        }
         if self.supports_keyboard_enhancement_protocol() {
             execute!(
                 self.buffer,
@@ -188,26 +181,10 @@ where
         Ok(())
     }
 
-    fn reconfigure(&mut self, config: Config) -> io::Result<()> {
-        if self.mouse_capture_enabled != config.enable_mouse_capture {
-            if config.enable_mouse_capture {
-                execute!(self.buffer, EnableMouseCapture)?;
-            } else {
-                execute!(self.buffer, DisableMouseCapture)?;
-            }
-            self.mouse_capture_enabled = config.enable_mouse_capture;
-        }
-
-        Ok(())
-    }
-
-    fn restore(&mut self, config: Config) -> io::Result<()> {
+    fn restore(&mut self, _config: Config) -> io::Result<()> {
         // reset cursor shape
         self.buffer
             .write_all(self.capabilities.reset_cursor_command.as_bytes())?;
-        if config.enable_mouse_capture {
-            execute!(self.buffer, DisableMouseCapture)?;
-        }
         if self.supports_keyboard_enhancement_protocol() {
             execute!(self.buffer, PopKeyboardEnhancementFlags)?;
         }
@@ -229,7 +206,6 @@ where
         write!(stdout, "\x1B[0 q")?;
         // Ignore errors on disabling, this might trigger on windows if we call
         // disable without calling enable previously
-        let _ = execute!(stdout, DisableMouseCapture);
         let _ = execute!(stdout, PopKeyboardEnhancementFlags);
         let _ = execute!(stdout, DisableBracketedPaste);
         execute!(stdout, DisableFocusChange, terminal::LeaveAlternateScreen)?;
@@ -337,6 +313,10 @@ where
 
     fn flush(&mut self) -> io::Result<()> {
         self.buffer.flush()
+    }
+
+    fn reconfigure(&mut self, _config: Config) -> Result<(), io::Error> {
+        Ok(())
     }
 }
 

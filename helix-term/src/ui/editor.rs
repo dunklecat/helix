@@ -15,22 +15,21 @@ use crate::{
 use helix_core::{
     diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
-    movement::Direction,
     syntax::{self, HighlightEvent},
     text_annotations::TextAnnotations,
     unicode::width::UnicodeWidthStr,
-    visual_offset_from_block, Change, Position, Range, Selection, Transaction,
+    visual_offset_from_block, Change, Position, Transaction,
 };
 use helix_view::{
     annotations::diagnostics::DiagnosticFilter,
-    document::{Mode, SavePoint, SCRATCH_BUFFER_NAME},
+    document::{Mode, SavePoint},
     editor::{CompleteAction, CursorShapeConfig},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
-    input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
+    input::KeyEvent,
     keyboard::{KeyCode, KeyModifiers},
     Document, Editor, Theme, View,
 };
-use std::{mem::take, num::NonZeroUsize, path::PathBuf, rc::Rc, sync::Arc};
+use std::{mem::take, num::NonZeroUsize, rc::Rc, sync::Arc};
 
 use tui::{buffer::Buffer as Surface, text::Span};
 
@@ -1043,223 +1042,6 @@ impl EditorView {
         self.handle_keymap_event(cxt.editor.mode, cxt, null_key_event);
         self.pseudo_pending.clear();
     }
-
-    fn handle_mouse_event(
-        &mut self,
-        event: &MouseEvent,
-        cxt: &mut commands::Context,
-    ) -> EventResult {
-        if event.kind != MouseEventKind::Moved {
-            self.handle_non_key_input(cxt)
-        }
-
-        let config = cxt.editor.config();
-        let MouseEvent {
-            kind,
-            row,
-            column,
-            modifiers,
-            ..
-        } = *event;
-
-        let pos_and_view = |editor: &Editor, row, column, ignore_virtual_text| {
-            editor.tree.views().find_map(|(view, _focus)| {
-                view.pos_at_screen_coords(
-                    &editor.documents[&view.doc],
-                    row,
-                    column,
-                    ignore_virtual_text,
-                )
-                .map(|pos| (pos, view.id))
-            })
-        };
-
-        let gutter_coords_and_view = |editor: &Editor, row, column| {
-            editor.tree.views().find_map(|(view, _focus)| {
-                view.gutter_coords_at_screen_coords(row, column)
-                    .map(|coords| (coords, view.id))
-            })
-        };
-
-        match kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                let editor = &mut cxt.editor;
-
-                if let Some((pos, view_id)) = pos_and_view(editor, row, column, true) {
-                    let prev_view_id = view!(editor).id;
-                    let doc = doc_mut!(editor, &view!(editor, view_id).doc);
-
-                    if modifiers == KeyModifiers::ALT {
-                        let selection = doc.selection(view_id).clone();
-                        doc.set_selection(view_id, selection.push(Range::point(pos)));
-                    } else if editor.mode == Mode::Select {
-                        // Discards non-primary selections for consistent UX with normal mode
-                        let primary = doc.selection(view_id).primary().put_cursor(
-                            doc.text().slice(..),
-                            pos,
-                            true,
-                        );
-                        editor.mouse_down_range = Some(primary);
-                        doc.set_selection(view_id, Selection::single(primary.anchor, primary.head));
-                    } else {
-                        doc.set_selection(view_id, Selection::point(pos));
-                    }
-
-                    if view_id != prev_view_id {
-                        self.clear_completion(editor);
-                    }
-
-                    editor.focus(view_id);
-                    editor.ensure_cursor_in_view(view_id);
-
-                    return EventResult::Consumed(None);
-                }
-
-                if let Some((coords, view_id)) = gutter_coords_and_view(editor, row, column) {
-                    editor.focus(view_id);
-
-                    let (view, doc) = current!(cxt.editor);
-
-                    let path = match doc.path() {
-                        Some(path) => path.clone(),
-                        None => return EventResult::Ignored(None),
-                    };
-
-                    if let Some(char_idx) =
-                        view.pos_at_visual_coords(doc, coords.row as u16, coords.col as u16, true)
-                    {
-                        let line = doc.text().char_to_line(char_idx);
-                        commands::dap_toggle_breakpoint_impl(cxt, path, line);
-                        return EventResult::Consumed(None);
-                    }
-                }
-
-                EventResult::Ignored(None)
-            }
-
-            MouseEventKind::Drag(MouseButton::Left) => {
-                let (view, doc) = current!(cxt.editor);
-
-                let pos = match view.pos_at_screen_coords(doc, row, column, true) {
-                    Some(pos) => pos,
-                    None => return EventResult::Ignored(None),
-                };
-
-                let mut selection = doc.selection(view.id).clone();
-                let primary = selection.primary_mut();
-                *primary = primary.put_cursor(doc.text().slice(..), pos, true);
-                doc.set_selection(view.id, selection);
-                let view_id = view.id;
-                cxt.editor.ensure_cursor_in_view(view_id);
-                EventResult::Consumed(None)
-            }
-
-            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-                let current_view = cxt.editor.tree.focus;
-
-                let direction = match event.kind {
-                    MouseEventKind::ScrollUp => Direction::Backward,
-                    MouseEventKind::ScrollDown => Direction::Forward,
-                    _ => unreachable!(),
-                };
-
-                match pos_and_view(cxt.editor, row, column, false) {
-                    Some((_, view_id)) => cxt.editor.tree.focus = view_id,
-                    None => return EventResult::Ignored(None),
-                }
-
-                let offset = config.scroll_lines.unsigned_abs();
-                commands::scroll(cxt, offset, direction, false);
-
-                cxt.editor.tree.focus = current_view;
-                cxt.editor.ensure_cursor_in_view(current_view);
-
-                EventResult::Consumed(None)
-            }
-
-            MouseEventKind::Up(MouseButton::Left) => {
-                if !config.middle_click_paste {
-                    return EventResult::Ignored(None);
-                }
-
-                let (view, doc) = current!(cxt.editor);
-
-                let should_yank = match cxt.editor.mouse_down_range.take() {
-                    Some(down_range) => doc.selection(view.id).primary() != down_range,
-                    None => {
-                        // This should not happen under normal cases. We fall back to the original
-                        // behavior of yanking on non-single-char selections.
-                        doc.selection(view.id)
-                            .primary()
-                            .slice(doc.text().slice(..))
-                            .len_chars()
-                            > 1
-                    }
-                };
-
-                if should_yank {
-                    commands::MappableCommand::yank_main_selection_to_primary_clipboard
-                        .execute(cxt);
-                    EventResult::Consumed(None)
-                } else {
-                    EventResult::Ignored(None)
-                }
-            }
-
-            MouseEventKind::Up(MouseButton::Right) => {
-                if let Some((pos, view_id)) = gutter_coords_and_view(cxt.editor, row, column) {
-                    cxt.editor.focus(view_id);
-
-                    if let Some((pos, _)) = pos_and_view(cxt.editor, row, column, true) {
-                        doc_mut!(cxt.editor).set_selection(view_id, Selection::point(pos));
-                    } else {
-                        let (view, doc) = current!(cxt.editor);
-
-                        if let Some(pos) = view.pos_at_visual_coords(doc, pos.row as u16, 0, true) {
-                            doc.set_selection(view_id, Selection::point(pos));
-                            match modifiers {
-                                KeyModifiers::ALT => {
-                                    commands::MappableCommand::dap_edit_log.execute(cxt)
-                                }
-                                _ => commands::MappableCommand::dap_edit_condition.execute(cxt),
-                            };
-                        }
-                    }
-
-                    cxt.editor.ensure_cursor_in_view(view_id);
-                    return EventResult::Consumed(None);
-                }
-                EventResult::Ignored(None)
-            }
-
-            MouseEventKind::Up(MouseButton::Middle) => {
-                let editor = &mut cxt.editor;
-                if !config.middle_click_paste {
-                    return EventResult::Ignored(None);
-                }
-
-                if modifiers == KeyModifiers::ALT {
-                    commands::MappableCommand::replace_selections_with_primary_clipboard
-                        .execute(cxt);
-
-                    return EventResult::Consumed(None);
-                }
-
-                if let Some((pos, view_id)) = pos_and_view(editor, row, column, true) {
-                    let doc = doc_mut!(editor, &view!(editor, view_id).doc);
-                    doc.set_selection(view_id, Selection::point(pos));
-                    cxt.editor.focus(view_id);
-                    commands::MappableCommand::paste_primary_clipboard_before.execute(cxt);
-
-                    return EventResult::Consumed(None);
-                }
-
-                EventResult::Ignored(None)
-            }
-
-            _ => EventResult::Ignored(None),
-        }
-    }
 }
 
 impl Component for EditorView {
@@ -1402,7 +1184,7 @@ impl Component for EditorView {
                 EventResult::Consumed(callback)
             }
 
-            Event::Mouse(event) => self.handle_mouse_event(event, &mut cx),
+            Event::Mouse => EventResult::Ignored(None),
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;

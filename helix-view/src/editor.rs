@@ -247,8 +247,6 @@ pub struct Config {
     pub scrolloff: usize,
     /// Number of lines to scroll at once. Defaults to 3
     pub scroll_lines: isize,
-    /// Mouse support. Defaults to true.
-    pub mouse: bool,
     /// Shell to use for shell commands. Defaults to ["cmd", "/C"] on Windows and ["sh", "-c"] otherwise.
     pub shell: Vec<String>,
     /// Line number mode.
@@ -919,7 +917,6 @@ impl Default for Config {
         Self {
             scrolloff: 5,
             scroll_lines: 3,
-            mouse: true,
             shell: if cfg!(windows) {
                 vec!["cmd".to_owned(), "/C".to_owned()]
             } else {
@@ -1063,7 +1060,6 @@ pub struct Editor {
     /// times during rendering and should not be set by other functions.
     pub handlers: Handlers,
 
-    pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
 }
 
@@ -1180,7 +1176,6 @@ impl Editor {
             config_events: unbounded_channel(),
             needs_redraw: false,
             handlers,
-            mouse_down_range: None,
             cursor_cache: CursorCache::default(),
         }
     }

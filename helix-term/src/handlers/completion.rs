@@ -87,7 +87,7 @@ impl helix_event::AsyncHook for CompletionHandler {
                 view,
             } => {
                 // techically it shouldn't be possible to switch views/documents in insert mode
-                // but people may create weird keymaps/use the mouse so lets be extra careful
+                // but people may create weird keymaps so lets be extra careful
                 if self
                     .trigger
                     .as_ref()

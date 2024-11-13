@@ -11,54 +11,12 @@ pub enum Event {
     FocusGained,
     FocusLost,
     Key(KeyEvent),
-    Mouse(MouseEvent),
+    Mouse, // just a placeholder
     Paste(String),
     Resize(u16, u16),
     IdleTimeout,
 }
 
-#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct MouseEvent {
-    /// The kind of mouse event that was caused.
-    pub kind: MouseEventKind,
-    /// The column that the event occurred on.
-    pub column: u16,
-    /// The row that the event occurred on.
-    pub row: u16,
-    /// The key modifiers active when the event occurred.
-    pub modifiers: KeyModifiers,
-}
-
-#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum MouseEventKind {
-    /// Pressed mouse button. Contains the button that was pressed.
-    Down(MouseButton),
-    /// Released mouse button. Contains the button that was released.
-    Up(MouseButton),
-    /// Moved the mouse cursor while pressing the contained mouse button.
-    Drag(MouseButton),
-    /// Moved the mouse cursor while not pressing a mouse button.
-    Moved,
-    /// Scrolled mouse wheel downwards (towards the user).
-    ScrollDown,
-    /// Scrolled mouse wheel upwards (away from the user).
-    ScrollUp,
-    /// Scrolled mouse wheel leftwards.
-    ScrollLeft,
-    /// Scrolled mouse wheel rightwards.
-    ScrollRight,
-}
-
-/// Represents a mouse button.
-#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum MouseButton {
-    /// Left mouse button.
-    Left,
-    /// Right mouse button.
-    Right,
-    /// Middle mouse button.
-    Middle,
-}
 /// Represents a key event.
 // We use a newtype here because we want to customize Deserialize and Display.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -436,57 +394,11 @@ impl From<crossterm::event::Event> for Event {
     fn from(event: crossterm::event::Event) -> Self {
         match event {
             crossterm::event::Event::Key(key) => Self::Key(key.into()),
-            crossterm::event::Event::Mouse(mouse) => Self::Mouse(mouse.into()),
+            crossterm::event::Event::Mouse(_) => Self::Mouse, //ignored
             crossterm::event::Event::Resize(w, h) => Self::Resize(w, h),
             crossterm::event::Event::FocusGained => Self::FocusGained,
             crossterm::event::Event::FocusLost => Self::FocusLost,
             crossterm::event::Event::Paste(s) => Self::Paste(s),
-        }
-    }
-}
-
-#[cfg(feature = "term")]
-impl From<crossterm::event::MouseEvent> for MouseEvent {
-    fn from(
-        crossterm::event::MouseEvent {
-            kind,
-            column,
-            row,
-            modifiers,
-        }: crossterm::event::MouseEvent,
-    ) -> Self {
-        Self {
-            kind: kind.into(),
-            column,
-            row,
-            modifiers: modifiers.into(),
-        }
-    }
-}
-
-#[cfg(feature = "term")]
-impl From<crossterm::event::MouseEventKind> for MouseEventKind {
-    fn from(kind: crossterm::event::MouseEventKind) -> Self {
-        match kind {
-            crossterm::event::MouseEventKind::Down(button) => Self::Down(button.into()),
-            crossterm::event::MouseEventKind::Up(button) => Self::Up(button.into()),
-            crossterm::event::MouseEventKind::Drag(button) => Self::Drag(button.into()),
-            crossterm::event::MouseEventKind::Moved => Self::Moved,
-            crossterm::event::MouseEventKind::ScrollDown => Self::ScrollDown,
-            crossterm::event::MouseEventKind::ScrollUp => Self::ScrollUp,
-            crossterm::event::MouseEventKind::ScrollLeft => Self::ScrollLeft,
-            crossterm::event::MouseEventKind::ScrollRight => Self::ScrollRight,
-        }
-    }
-}
-
-#[cfg(feature = "term")]
-impl From<crossterm::event::MouseButton> for MouseButton {
-    fn from(button: crossterm::event::MouseButton) -> Self {
-        match button {
-            crossterm::event::MouseButton::Left => MouseButton::Left,
-            crossterm::event::MouseButton::Right => MouseButton::Right,
-            crossterm::event::MouseButton::Middle => MouseButton::Middle,
         }
     }
 }

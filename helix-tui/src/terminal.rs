@@ -18,15 +18,11 @@ pub struct Viewport {
 }
 
 #[derive(Debug)]
-pub struct Config {
-    pub enable_mouse_capture: bool,
-}
+pub struct Config {}
 
 impl From<EditorConfig> for Config {
-    fn from(config: EditorConfig) -> Self {
-        Self {
-            enable_mouse_capture: config.mouse,
-        }
+    fn from(_config: EditorConfig) -> Self {
+        Self {}
     }
 }
 
